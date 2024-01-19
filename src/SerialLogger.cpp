@@ -8,7 +8,7 @@
 
 static void writeTime()
 {
-  struct tm* ptm;
+  struct tm *ptm;
   time_t now = time(NULL);
 
   ptm = gmtime(&now);

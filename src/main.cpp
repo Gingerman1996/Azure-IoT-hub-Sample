@@ -1,98 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
-// SPDX-License-Identifier: MIT
-
-/*
- * This is an Arduino-based Azure IoT Hub sample for ESPRESSIF ESP32 boards.
- * It uses our Azure Embedded SDK for C to help interact with Azure IoT.
- * For reference, please visit https://github.com/azure/azure-sdk-for-c.
- *
- * To connect and work with Azure IoT Hub you need an MQTT client, connecting, subscribing
- * and publishing to specific topics to use the messaging features of the hub.
- * Our azure-sdk-for-c is an MQTT client support library, helping composing and parsing the
- * MQTT topic names and messages exchanged with the Azure IoT Hub.
- *
- * This sample performs the following tasks:
- * - Synchronize the device clock with a NTP server;
- * - Initialize our "az_iot_hub_client" (struct for data, part of our azure-sdk-for-c);
- * - Initialize the MQTT client (here we use ESPRESSIF's esp_mqtt_client, which also handle the tcp
- * connection and TLS);
- * - Connect the MQTT client (using server-certificate validation, SAS-tokens for client
- * authentication);
- * - Periodically send telemetry data to the Azure IoT Hub.
- *
- * To properly connect to your Azure IoT Hub, please fill the information in the `iot_configs.h`
- * file.
- */
-
-// C99 libraries
-#include <cstdlib>
-#include <string.h>
-#include <time.h>
-
-// Libraries for MQTT client and WiFi connection
-#include <WiFi.h>
-#include <mqtt_client.h>
-
-// Azure IoT SDK for C includes
-#include <az_core.h>
-#include <az_iot.h>
-#include <azure_ca.h>
-
-// Additional sample headers
-#include "AzIoTSasToken.h"
-#include "SerialLogger.h"
-#include "iot_configs.h"
-
-// When developing for your own Arduino-based platform,
-// please follow the format '(ard;<platform>)'.
-#define AZURE_SDK_CLIENT_USER_AGENT "c%2F" AZ_SDK_VERSION_STRING "(ard;esp32)"
-
-// Utility macros and defines
-#define sizeofarray(a) (sizeof(a) / sizeof(a[0]))
-#define NTP_SERVERS "pool.ntp.org", "time.nist.gov"
-#define MQTT_QOS1 1
-#define DO_NOT_RETAIN_MSG 0
-#define SAS_TOKEN_DURATION_IN_MINUTES 60
-#define UNIX_TIME_NOV_13_2017 1510592825
-
-#define PST_TIME_ZONE 7
-#define PST_TIME_ZONE_DAYLIGHT_SAVINGS_DIFF 1
-
-#define GMT_OFFSET_SECS (PST_TIME_ZONE * 3600)
-#define GMT_OFFSET_SECS_DST ((PST_TIME_ZONE + PST_TIME_ZONE_DAYLIGHT_SAVINGS_DIFF) * 3600)
-
-// Translate iot_configs.h defines into variables used by the sample
-static const char* ssid = IOT_CONFIG_WIFI_SSID;
-static const char* password = IOT_CONFIG_WIFI_PASSWORD;
-static const char* host = IOT_CONFIG_IOTHUB_FQDN;
-static const char* mqtt_broker_uri = "mqtts://" IOT_CONFIG_IOTHUB_FQDN;
-static const char* device_id = IOT_CONFIG_DEVICE_ID;
-static const int mqtt_port = AZ_IOT_DEFAULT_MQTT_CONNECT_PORT;
-
-// Memory allocated for the sample's variables and structures.
-static esp_mqtt_client_handle_t mqtt_client;
-static az_iot_hub_client client;
-
-static char mqtt_client_id[128];
-static char mqtt_username[128];
-static char mqtt_password[200];
-static uint8_t sas_signature_buffer[256];
-static unsigned long next_telemetry_send_time_ms = 0;
-static char telemetry_topic[128];
-static uint32_t telemetry_send_count = 0;
-static String telemetry_payload = "{}";
-
-#define INCOMING_DATA_BUFFER_SIZE 128
-static char incoming_data[INCOMING_DATA_BUFFER_SIZE];
-
-// Auxiliary functions
-#ifndef IOT_CONFIG_USE_X509_CERT
-static AzIoTSasToken sasToken(
-    &client,
-    AZ_SPAN_FROM_STR(IOT_CONFIG_DEVICE_KEY),
-    AZ_SPAN_FROM_BUFFER(sas_signature_buffer),
-    AZ_SPAN_FROM_BUFFER(mqtt_password));
-#endif // IOT_CONFIG_USE_X509_CERT
+#include "main_config.h"
 
 static void connectToWiFi()
 {
@@ -129,7 +35,7 @@ static void initializeTime()
   Logger.Info("Time initialized!");
 }
 
-void receivedCallback(char* topic, byte* payload, unsigned int length)
+void receivedCallback(char *topic, byte *payload, unsigned int length)
 {
   Logger.Info("Received [");
   Logger.Info(topic);
@@ -147,59 +53,59 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
   {
     int i, r;
 
-    case MQTT_EVENT_ERROR:
-      Logger.Info("MQTT event MQTT_EVENT_ERROR");
-      break;
-    case MQTT_EVENT_CONNECTED:
-      Logger.Info("MQTT event MQTT_EVENT_CONNECTED");
+  case MQTT_EVENT_ERROR:
+    Logger.Info("MQTT event MQTT_EVENT_ERROR");
+    break;
+  case MQTT_EVENT_CONNECTED:
+    Logger.Info("MQTT event MQTT_EVENT_CONNECTED");
 
-      r = esp_mqtt_client_subscribe(mqtt_client, AZ_IOT_HUB_CLIENT_C2D_SUBSCRIBE_TOPIC, 1);
-      if (r == -1)
-      {
-        Logger.Error("Could not subscribe for cloud-to-device messages.");
-      }
-      else
-      {
-        Logger.Info("Subscribed for cloud-to-device messages; message id:" + String(r));
-      }
+    r = esp_mqtt_client_subscribe(mqtt_client, AZ_IOT_HUB_CLIENT_C2D_SUBSCRIBE_TOPIC, 1);
+    if (r == -1)
+    {
+      Logger.Error("Could not subscribe for cloud-to-device messages.");
+    }
+    else
+    {
+      Logger.Info("Subscribed for cloud-to-device messages; message id:" + String(r));
+    }
 
-      break;
-    case MQTT_EVENT_DISCONNECTED:
-      Logger.Info("MQTT event MQTT_EVENT_DISCONNECTED");
-      break;
-    case MQTT_EVENT_SUBSCRIBED:
-      Logger.Info("MQTT event MQTT_EVENT_SUBSCRIBED");
-      break;
-    case MQTT_EVENT_UNSUBSCRIBED:
-      Logger.Info("MQTT event MQTT_EVENT_UNSUBSCRIBED");
-      break;
-    case MQTT_EVENT_PUBLISHED:
-      Logger.Info("MQTT event MQTT_EVENT_PUBLISHED");
-      break;
-    case MQTT_EVENT_DATA:
-      Logger.Info("MQTT event MQTT_EVENT_DATA");
+    break;
+  case MQTT_EVENT_DISCONNECTED:
+    Logger.Info("MQTT event MQTT_EVENT_DISCONNECTED");
+    break;
+  case MQTT_EVENT_SUBSCRIBED:
+    Logger.Info("MQTT event MQTT_EVENT_SUBSCRIBED");
+    break;
+  case MQTT_EVENT_UNSUBSCRIBED:
+    Logger.Info("MQTT event MQTT_EVENT_UNSUBSCRIBED");
+    break;
+  case MQTT_EVENT_PUBLISHED:
+    Logger.Info("MQTT event MQTT_EVENT_PUBLISHED");
+    break;
+  case MQTT_EVENT_DATA:
+    Logger.Info("MQTT event MQTT_EVENT_DATA");
 
-      for (i = 0; i < (INCOMING_DATA_BUFFER_SIZE - 1) && i < event->topic_len; i++)
-      {
-        incoming_data[i] = event->topic[i];
-      }
-      incoming_data[i] = '\0';
-      Logger.Info("Topic: " + String(incoming_data));
+    for (i = 0; i < (INCOMING_DATA_BUFFER_SIZE - 1) && i < event->topic_len; i++)
+    {
+      incoming_data[i] = event->topic[i];
+    }
+    incoming_data[i] = '\0';
+    Logger.Info("Topic: " + String(incoming_data));
 
-      for (i = 0; i < (INCOMING_DATA_BUFFER_SIZE - 1) && i < event->data_len; i++)
-      {
-        incoming_data[i] = event->data[i];
-      }
-      incoming_data[i] = '\0';
-      Logger.Info("Data: " + String(incoming_data));
+    for (i = 0; i < (INCOMING_DATA_BUFFER_SIZE - 1) && i < event->data_len; i++)
+    {
+      incoming_data[i] = event->data[i];
+    }
+    incoming_data[i] = '\0';
+    Logger.Info("Data: " + String(incoming_data));
 
-      break;
-    case MQTT_EVENT_BEFORE_CONNECT:
-      Logger.Info("MQTT event MQTT_EVENT_BEFORE_CONNECT");
-      break;
-    default:
-      Logger.Error("MQTT event UNKNOWN");
-      break;
+    break;
+  case MQTT_EVENT_BEFORE_CONNECT:
+    Logger.Info("MQTT event MQTT_EVENT_BEFORE_CONNECT");
+    break;
+  default:
+    Logger.Error("MQTT event UNKNOWN");
+    break;
   }
 
   return ESP_OK;
@@ -212,8 +118,8 @@ static void initializeIoTHubClient()
 
   if (az_result_failed(az_iot_hub_client_init(
           &client,
-          az_span_create((uint8_t*)host, strlen(host)),
-          az_span_create((uint8_t*)device_id, strlen(device_id)),
+          az_span_create((uint8_t *)host, strlen(host)),
+          az_span_create((uint8_t *)device_id, strlen(device_id)),
           &options)))
   {
     Logger.Error("Failed initializing Azure IoT Hub client");
@@ -261,7 +167,7 @@ static int initializeMqttClient()
   mqtt_config.client_cert_pem = IOT_CONFIG_DEVICE_CERT;
   mqtt_config.client_key_pem = IOT_CONFIG_DEVICE_CERT_PRIVATE_KEY;
 #else // Using SAS key
-  mqtt_config.password = (const char*)az_span_ptr(sasToken.Get());
+  mqtt_config.password = (const char *)az_span_ptr(sasToken.Get());
 #endif
 
   mqtt_config.keepalive = 30;
@@ -269,7 +175,7 @@ static int initializeMqttClient()
   mqtt_config.disable_auto_reconnect = false;
   mqtt_config.event_handle = mqtt_event_handler;
   mqtt_config.user_context = NULL;
-  mqtt_config.cert_pem = (const char*)ca_pem;
+  mqtt_config.cert_pem = (const char *)ca_pem;
 
   mqtt_client = esp_mqtt_client_init(&mqtt_config);
 
@@ -311,11 +217,21 @@ static void generateTelemetryPayload()
 {
   // You can generate the JSON using any lib you want. Here we're showing how to do it manually, for simplicity.
   // This sample shows how to generate the payload using a syntax closer to regular delevelopment for Arduino, with
-  // String type instead of az_span as it might be done in other samples. Using az_span has the advantage of reusing the 
+  // String type instead of az_span as it might be done in other samples. Using az_span has the advantage of reusing the
   // same char buffer instead of dynamically allocating memory each time, as it is done by using the String type below.
-  telemetry_payload = "{ \"msgCount\": " + String(telemetry_send_count++) + " }";
-}
+  StaticJsonDocument<256> telemetry_Json;
+  // String JsonOutput;
+  telemetry_payload = "";
+  telemetry_Json["pH"] = read_ph_temp.ph;
+  telemetry_Json["Temperature"] = read_ph_temp.temp;
+  telemetry_Json["Voltage_pH"] = read_ph_temp.voltage;
+  telemetry_Json["RSSI"] = WiFi.RSSI();
 
+  serializeJson(telemetry_Json, telemetry_payload);
+  telemetry_Json.clear();
+  // telemetry_payload = "{ \"msgCount\": " + String(telemetry_send_count++) + " }";
+}
+ 
 static void sendTelemetry()
 {
   Logger.Info("Sending telemetry ...");
@@ -335,11 +251,10 @@ static void sendTelemetry()
   if (esp_mqtt_client_publish(
           mqtt_client,
           telemetry_topic,
-          (const char*)telemetry_payload.c_str(),
+          (const char *)telemetry_payload.c_str(),
           telemetry_payload.length(),
           MQTT_QOS1,
-          DO_NOT_RETAIN_MSG)
-      == 0)
+          DO_NOT_RETAIN_MSG) == 0)
   {
     Logger.Error("Failed publishing");
   }
@@ -350,9 +265,35 @@ static void sendTelemetry()
   }
 }
 
+void taskRead_pH_temp(void *pvvalue)
+{
+  while (1)
+  {
+    static unsigned long timepoint = millis();
+    read_ph_temp.voltage = roundf(mypH.get_ph_voltage() * 100) / 100;
+    read_ph_temp.ph = roundf(mypH.get_pH() * 100) / 100;
+    read_ph_temp.temp = roundf(mypH.get_temp_f() * 100) / 100;
+    vTaskDelay(xDelay1ms);
+  }
+}
+
 // Arduino setup and loop main functions.
 
-void setup() { establishConnection(); }
+void setup()
+{
+  establishConnection();
+  mypH.begin();
+  Logger.Info("Boot");
+  for (int i; i < 30; i++)
+  {
+    Serial.print(".");
+    mypH.get_ph_voltage();
+  }
+  Serial.println();
+  // xTaskCreatePinnedToCore(taskWifi, "Wifi", 4096, NULL, PRIORITY_LVL2, &TaskWifi, 0);
+  // xTaskCreatePinnedToCore(taskPrint_ph_temp, "Print_ph_and_temp", 3000, NULL, NULL, &TaskPrint_ph_temp, 0);
+  xTaskCreatePinnedToCore(taskRead_pH_temp, "Read_pH_and_temp", 4096, NULL, PRIORITY_LVL2, &TaskRead_pH_temp, 0);
+}
 
 void loop()
 {
@@ -372,5 +313,15 @@ void loop()
   {
     sendTelemetry();
     next_telemetry_send_time_ms = millis() + TELEMETRY_FREQUENCY_MILLISECS;
+  }
+
+  while (Serial.available() > 0)
+  {
+    String readSerial = Serial.readString();
+    uint8_t cmd_len = readSerial.length() + 1;
+    char cmd[cmd_len];
+    readSerial.toCharArray(cmd, cmd_len);
+
+    mypH.cal_ph(cmd);
   }
 }
